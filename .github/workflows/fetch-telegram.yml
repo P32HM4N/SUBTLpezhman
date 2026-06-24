@@ -37,8 +37,8 @@ jobs:
           import signal
 
           CHANNEL = 'NamazVPN'
-          LIMIT = 200
-          MAX_PAGES = 15
+          LIMIT = 20
+          MAX_PAGES = 10
           BASE_URL = f'https://t.me/s/{CHANNEL}'
 
           def timeout_handler(signum, frame):
@@ -49,22 +49,9 @@ jobs:
           signal.alarm(180)
 
           def extract_links(text):
-              patterns = [
-                  r'(vless|vmess|ss|ssr|trojan|http|https)://[^\s]+',
-                  r'subscription\s*:\s*([^\s]+)',
-              ]
-              links = []
-              for pat in patterns:
-                  found = re.findall(pat, text, re.IGNORECASE)
-                  for item in found:
-                      if isinstance(item, tuple):
-                          for part in item:
-                              if part.startswith(('vless','vmess','ss','ssr','trojan','http','https')):
-                                  links.append(part)
-                      else:
-                          if item.startswith(('vless','vmess','ss','ssr','trojan','http','https')):
-                              links.append(item)
-              return links
+              # الگوی جدید برای استخراج کامل لینک‌ها
+              pattern = r'(https?://[^\s<>"\'()]+|vless://[^\s<>"\'()]+|vmess://[^\s<>"\'()]+|ss://[^\s<>"\'()]+|ssr://[^\s<>"\'()]+|trojan://[^\s<>"\'()]+)'
+              return re.findall(pattern, text, re.IGNORECASE)
 
           def get_subscription_links(limit):
               all_links = []
@@ -75,7 +62,8 @@ jobs:
               })
 
               page_count = 0
-              while len(all_links) < limit and url and page_count < MAX_PAGES:
+              new_links_found = True
+              while len(all_links) < limit and url and page_count < MAX_PAGES and new_links_found:
                   page_count += 1
                   print(f'[DEBUG] Page {page_count}: {url}', file=sys.stderr)
 
@@ -93,6 +81,7 @@ jobs:
 
                   print(f'[DEBUG] Found {len(messages)} messages on page {page_count}', file=sys.stderr)
 
+                  prev_count = len(all_links)
                   for msg in messages:
                       text_elem = msg.find('div', class_='tgme_widget_message_text')
                       if not text_elem:
@@ -108,6 +97,11 @@ jobs:
                           break
 
                   print(f'[DEBUG] Total links so far: {len(all_links)}', file=sys.stderr)
+
+                  if len(all_links) == prev_count:
+                      new_links_found = False
+                      print('[DEBUG] No new links found on this page, stopping.', file=sys.stderr)
+                      break
 
                   next_url = None
                   next_elem = soup.find('div', class_='tgme_widget_message_bubble')
@@ -138,6 +132,9 @@ jobs:
 
               if page_count >= MAX_PAGES:
                   print(f'[DEBUG] Reached max pages ({MAX_PAGES}), stopping.', file=sys.stderr)
+
+              if not new_links_found:
+                  print('[DEBUG] Stopped because no new links were found.', file=sys.stderr)
 
               return all_links[:limit]
 
