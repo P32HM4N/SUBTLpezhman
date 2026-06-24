@@ -1,1 +1,140 @@
+name: Fetch Telegram Channel Subscriptions
 
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4
+
+      - name: Fetch latest subscription links from Telegram
+        id: fetch_links
+        run: |
+          python - << 'EOF'
+          import requests
+          from bs4 import BeautifulSoup
+          import re
+          import time
+          import sys
+
+          CHANNEL = 'NamazVPN'
+          LIMIT = 200
+          BASE_URL = f'https://t.me/s/{CHANNEL}'
+
+          def extract_links(text):
+              patterns = [
+                  r'(vless|vmess|ss|ssr|trojan|http|https)://[^\s]+',
+                  r'subscription\s*:\s*([^\s]+)',
+              ]
+              links = []
+              for pat in patterns:
+                  found = re.findall(pat, text, re.IGNORECASE)
+                  for item in found:
+                      if isinstance(item, tuple):
+                          for part in item:
+                              if part.startswith(('vless','vmess','ss','ssr','trojan','http','https')):
+                                  links.append(part)
+                      else:
+                          if item.startswith(('vless','vmess','ss','ssr','trojan','http','https')):
+                              links.append(item)
+              return links
+
+          def get_subscription_links(limit):
+              all_links = []
+              url = BASE_URL
+              session = requests.Session()
+              session.headers.update({
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+              })
+
+              while len(all_links) < limit and url:
+                  try:
+                      resp = session.get(url, timeout=15)
+                      resp.raise_for_status()
+                  except Exception as e:
+                      print(f'Error fetching page: {e}', file=sys.stderr)
+                      break
+
+                  soup = BeautifulSoup(resp.text, 'html.parser')
+                  messages = soup.find_all('div', class_='tgme_widget_message')
+                  if not messages:
+                      messages = soup.find_all('div', class_='tgme_widget_message_wrap')
+
+                  for msg in messages:
+                      text_elem = msg.find('div', class_='tgme_widget_message_text')
+                      if not text_elem:
+                          continue
+                      text = text_elem.get_text(strip=True)
+                      links = extract_links(text)
+                      for link in links:
+                          if link not in all_links:
+                              all_links.append(link)
+                              if len(all_links) >= limit:
+                                  break
+                      if len(all_links) >= limit:
+                          break
+
+                  next_elem = soup.find('div', class_='tgme_widget_message_bubble')
+                  if next_elem and next_elem.get('data-next'):
+                      next_val = next_elem['data-next']
+                      url = f'{BASE_URL}?before={next_val}'
+                  else:
+                      more = soup.find('a', class_='tme_messages_more')
+                      if more and more.get('href'):
+                          url = 'https://t.me' + more['href']
+                      else:
+                          last_msg = soup.find('div', class_='tgme_widget_message')
+                          if last_msg and last_msg.get('data-post'):
+                              post_id = last_msg['data-post'].split('/')[-1]
+                              url = f'{BASE_URL}?before={post_id}'
+                          else:
+                              break
+                  time.sleep(2)
+
+              return all_links[:limit]
+
+          links = get_subscription_links(LIMIT)
+          if not links:
+              print('No subscription links found!', file=sys.stderr)
+              sys.exit(1)
+
+          with open('sub.txt', 'w', encoding='utf-8') as f:
+              f.write('\n'.join(links))
+
+          print(f'Successfully fetched {len(links)} links.')
+          EOF
+
+      - name: Replace channel name (optional)
+        run: |
+          sed -i 's/@NamazVPN/@PEZHMAN/g' sub.txt 2>/dev/null || true
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add sub.txt
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Update subscription links from Telegram [skip ci]"
+          git pull origin main --ff-only
+          git push origin main
