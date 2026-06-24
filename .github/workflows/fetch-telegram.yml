@@ -36,7 +36,7 @@ jobs:
           import sys
 
           CHANNEL = 'NamazVPN'
-          LIMIT = 200
+          LIMIT = 20
           BASE_URL = f'https://t.me/s/{CHANNEL}'
 
           def extract_links(text):
