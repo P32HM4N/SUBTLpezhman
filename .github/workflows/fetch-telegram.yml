@@ -37,8 +37,8 @@ jobs:
           import signal
 
           CHANNEL = 'NamazVPN'
-          LIMIT = 100
-          MAX_PAGES = 25
+          LIMIT = 250
+          MAX_PAGES = 50
           BASE_URL = f'https://t.me/s/{CHANNEL}'
 
           def timeout_handler(signum, frame):
@@ -46,7 +46,7 @@ jobs:
               sys.exit(1)
 
           signal.signal(signal.SIGALRM, timeout_handler)
-          signal.alarm(180)
+          signal.alarm(300)
 
           def extract_links(text):
               pattern = r'(https?://[^\s<>"\'()]+|vless://[^\s<>"\'()]+|vmess://[^\s<>"\'()]+|ss://[^\s<>"\'()]+|ssr://[^\s<>"\'()]+|trojan://[^\s<>"\'()]+)'
@@ -142,13 +142,17 @@ jobs:
               print('No subscription links found!', file=sys.stderr)
               sys.exit(1)
 
-          # جایگزینی کلمه NamazVPN با PEZHMAN در تمام لینک‌ها
-          replaced_links = [link.replace('NamazVPN', 'PEZHMAN') for link in links]
+          
+          cleaned_links = []
+          for link in links:
+              link = link.replace('NamazVPN', 'PEZHMAN')
+              link = re.sub(r'\|?@NamazProxy', '', link)
+              cleaned_links.append(link)
 
           with open('sub.txt', 'w', encoding='utf-8') as f:
-              f.write('\n'.join(replaced_links))
+              f.write('\n'.join(cleaned_links))
 
-          print(f'Successfully fetched {len(replaced_links)} links.')
+          print(f'Successfully fetched {len(cleaned_links)} links.')
           EOF
 
       - name: Commit and push changes
