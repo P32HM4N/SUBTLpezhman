@@ -34,10 +34,19 @@ jobs:
           import re
           import time
           import sys
+          import signal
 
           CHANNEL = 'NamazVPN'
-          LIMIT = 20
+          LIMIT = 200
+          MAX_PAGES = 15
           BASE_URL = f'https://t.me/s/{CHANNEL}'
+
+          def timeout_handler(signum, frame):
+              print("Script timeout (3 minutes)", file=sys.stderr)
+              sys.exit(1)
+
+          signal.signal(signal.SIGALRM, timeout_handler)
+          signal.alarm(180)
 
           def extract_links(text):
               patterns = [
@@ -65,7 +74,11 @@ jobs:
                   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
               })
 
-              while len(all_links) < limit and url:
+              page_count = 0
+              while len(all_links) < limit and url and page_count < MAX_PAGES:
+                  page_count += 1
+                  print(f'[DEBUG] Page {page_count}: {url}', file=sys.stderr)
+
                   try:
                       resp = session.get(url, timeout=15)
                       resp.raise_for_status()
@@ -77,6 +90,8 @@ jobs:
                   messages = soup.find_all('div', class_='tgme_widget_message')
                   if not messages:
                       messages = soup.find_all('div', class_='tgme_widget_message_wrap')
+
+                  print(f'[DEBUG] Found {len(messages)} messages on page {page_count}', file=sys.stderr)
 
                   for msg in messages:
                       text_elem = msg.find('div', class_='tgme_widget_message_text')
@@ -92,22 +107,37 @@ jobs:
                       if len(all_links) >= limit:
                           break
 
+                  print(f'[DEBUG] Total links so far: {len(all_links)}', file=sys.stderr)
+
+                  next_url = None
                   next_elem = soup.find('div', class_='tgme_widget_message_bubble')
                   if next_elem and next_elem.get('data-next'):
                       next_val = next_elem['data-next']
-                      url = f'{BASE_URL}?before={next_val}'
-                  else:
+                      next_url = f'{BASE_URL}?before={next_val}'
+                      print(f'[DEBUG] Found data-next: {next_val}', file=sys.stderr)
+
+                  if not next_url:
                       more = soup.find('a', class_='tme_messages_more')
                       if more and more.get('href'):
-                          url = 'https://t.me' + more['href']
-                      else:
-                          last_msg = soup.find('div', class_='tgme_widget_message')
-                          if last_msg and last_msg.get('data-post'):
-                              post_id = last_msg['data-post'].split('/')[-1]
-                              url = f'{BASE_URL}?before={post_id}'
-                          else:
-                              break
+                          next_url = 'https://t.me' + more['href']
+                          print(f'[DEBUG] Found tme_messages_more: {more["href"]}', file=sys.stderr)
+
+                  if not next_url:
+                      last_msg = soup.find('div', class_='tgme_widget_message')
+                      if last_msg and last_msg.get('data-post'):
+                          post_id = last_msg['data-post'].split('/')[-1]
+                          next_url = f'{BASE_URL}?before={post_id}'
+                          print(f'[DEBUG] Found data-post: {last_msg["data-post"]}', file=sys.stderr)
+
+                  if not next_url:
+                      print('[DEBUG] No next page found, stopping.', file=sys.stderr)
+                      break
+
+                  url = next_url
                   time.sleep(2)
+
+              if page_count >= MAX_PAGES:
+                  print(f'[DEBUG] Reached max pages ({MAX_PAGES}), stopping.', file=sys.stderr)
 
               return all_links[:limit]
 
